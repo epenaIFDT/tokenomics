@@ -13,6 +13,8 @@ ENV/
 *.log
 sync_github.py
 instructivo.md
+ejecutar.bat
+*.bat
 .env
 
 # IDE and Editor settings
