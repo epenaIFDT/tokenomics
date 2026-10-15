@@ -3,9 +3,9 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Output: JSON & CSV](https://img.shields.io/badge/Output-JSON%20%26%20CSV-blue.svg)](#dataset-structure)
-[![Tracked Providers](https://img.shields.io/badge/Providers-OpenAI%20%7C%20Anthropic-orange.svg)](#supported-providers)
+[![Tracked Providers](https://img.shields.io/badge/Providers-OpenAI%20%7C%20Anthropic-orange.svg)](#key-features)
 
-**Tokenomics** is an automated, standalone Python tool (`token_index.py`) that monitors official public token pricing across major AI providers (**OpenAI** and **Anthropic Claude**). It parses developer documentation tables, extracts standard inference rates per million tokens, calculates aggregate market metrics, and exports clean datasets in both **CSV** and **JSON** formats.
+**Tokenomics** is an automated, standalone Python tool (`token_index.py`) that monitors official public token pricing across major AI providers (**OpenAI** and **Anthropic Claude**). It parses developer documentation tables, extracts standard inference rates per million tokens, calculates aggregate market metrics (global and categorized by model tier), and exports clean datasets in both **CSV** and **JSON** formats, maintaining point-in-time historical backups.
 
 Designed to run seamlessly via **Cron**, **Windows Task Scheduler**, **n8n**, **Node-RED**, or CI/CD pipelines with zero external database dependencies.
 
@@ -21,16 +21,28 @@ Designed to run seamlessly via **Cron**, **Windows Task Scheduler**, **n8n**, **
   * Accurately isolates standard base inference rates (Short Context / Prompt base).
   * Excludes batch discounts (e.g., 50% off), priority/fast mode surcharges, prompt caching writes, and non-token services (per-minute audio, search tools, container runtimes).
 * **Identifier Normalization:** Slugs model names into clean, lowercase strings (e.g., `gpt-6.1-sol`, `claude-sonnet-5.5`).
-* **Dual Output:** Generates structured datasets under `data/`:
-  * `data/token_prices.csv`: Tabular format for spreadsheets, Pandas, and BI analysis.
-  * `data/token_prices.json`: Full JSON payload including UTC timestamp and aggregate summary metrics.
-* **Summary Metrics:** Automatically computes model counts, averages, and min/max boundaries.
+* **Categorized Benchmarks:** Automatically segments models into three industry-standard tiers:
+  * **Lightweight:** Fast, low-latency, high-volume models (Haiku, Luna, Mini).
+  * **Flagship:** Balanced, standard production workhorse models (Sonnet, Sol, Codex).
+  * **Frontier:** Heavy reasoning, complex agentic models (Opus, Astra, Fable, Mythos, Cyber).
+* **Dual Output & Historical Archiving:**
+  * Generates current snapshots in `data/token_prices.json` and `data/token_prices.csv`.
+  * Preserves point-in-time dated archives under `data/history/` (`token_prices_YYYY-MM-DD.json`, `token_prices_YYYY-MM-DD.csv`).
 
 ---
 
 ## 📊 Dataset Structure
 
-All consolidated outputs are saved in the `data/` directory:
+All consolidated outputs are organized in the `data/` directory:
+
+```text
+data/
+├── token_prices.csv           # Current latest CSV snapshot
+├── token_prices.json          # Current latest JSON snapshot with tier metrics
+└── history/
+    ├── token_prices_YYYY-MM-DD.csv   # Historical daily backup
+    └── token_prices_YYYY-MM-DD.json  # Historical daily backup
+```
 
 ### 1. Tabular Format (`data/token_prices.csv`)
 Ready for ingestion into Pandas, spreadsheets, DuckDB, or BI dashboards:
@@ -50,11 +62,11 @@ anthropic,claude-haiku-5.5,0.1,0.5
 ```
 
 ### 2. Structured JSON (`data/token_prices.json`)
-Includes UTC timestamp, full models array, and aggregate index summary:
+Includes UTC timestamp, models array, global summary, and tier breakdowns:
 
 ```json
 {
-  "timestamp": "2026-10-15T19:16:05",
+  "timestamp": "2026-10-15T21:42:14",
   "models": [
     {
       "provider": "openai",
@@ -76,28 +88,56 @@ Includes UTC timestamp, full models array, and aggregate index summary:
     "min_input": 0.1,
     "max_input": 15.0,
     "min_output": 0.5,
-    "max_output": 75.0
+    "max_output": 75.0,
+    "by_tier": {
+      "lightweight": {
+        "models_count": 4,
+        "avg_input": 0.5,
+        "avg_output": 2.5,
+        "min_input": 0.1,
+        "max_input": 1.0,
+        "min_output": 0.5,
+        "max_output": 5.0
+      },
+      "flagship": {
+        "models_count": 9,
+        "avg_input": 2.8611,
+        "avg_output": 15.4444,
+        "min_input": 1.75,
+        "max_input": 5.0,
+        "min_output": 10.0,
+        "max_output": 30.0
+      },
+      "frontier": {
+        "models_count": 16,
+        "avg_input": 8.2188,
+        "avg_output": 41.875,
+        "min_input": 4.0,
+        "max_input": 15.0,
+        "min_output": 20.0,
+        "max_output": 75.0
+      }
+    }
   }
 }
 ```
 
 ---
 
-## 📈 Benchmark Snapshot
+## 📈 Benchmark Snapshot by Tier
 
-| Metric | Input Cost (USD / MTok) | Output Cost (USD / MTok) |
-| :--- | :---: | :---: |
-| **Market Average** | **$5.4914** | **$28.2414** |
-| **Lowest Price** | **$0.10** (`gpt-6-luna`, `claude-haiku-5.5`) | **$0.50** (`gpt-6-luna`, `claude-haiku-5.5`) |
-| **Highest Price** | **$15.00** (`claude-opus-4.1`, `claude-opus-4`) | **$75.00** (`gpt-5.6-cyber`, `claude-opus-4.1`) |
-
-*Currently tracking **29 active production models** (9 from OpenAI, 20 from Anthropic).*
+| Performance Tier | Models Count | Avg Input ($ / MTok) | Avg Output ($ / MTok) | Typical Models |
+| :--- | :---: | :---: | :---: | :--- |
+| **Lightweight** (Mini / Fast) | 4 | **$0.50** | **$2.50** | `gpt-6-luna`, `claude-haiku-5.5`, `claude-haiku-3.5` |
+| **Flagship** (Workhorse / Balanced) | 9 | **$2.86** | **$15.44** | `gpt-6.1-sol`, `claude-sonnet-5.5`, `gpt-5.3-codex` |
+| **Frontier** (Reasoning / Complex) | 16 | **$8.22** | **$41.88** | `gpt-6-astra`, `claude-opus-5.5`, `claude-fable-5.1` |
+| **Global Market Average** | **29** | **$5.49** | **$28.24** | *All tracked models* |
 
 ---
 
 ## ⚙️ Installation & Requirements
 
-Ensure you have **Python 3.10+** installed, then install the required dependencies:
+Ensure you have **Python 3.10+** installed, then install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -116,9 +156,10 @@ python token_index.py
 ### Execution Pipeline:
 1. Fetches and parses live tables from OpenAI and Anthropic developer portals.
 2. Normalizes model names and pricing.
-3. Computes market summary metrics.
-4. Saves `data/token_prices.json` and `data/token_prices.csv`.
-5. Prints the summary index JSON to `stdout`.
+3. Computes market summary metrics globally and per tier.
+4. Updates current snapshots in `data/token_prices.json` and `data/token_prices.csv`.
+5. Automatically creates point-in-time dated backups in `data/history/`.
+6. Prints the summary index JSON to `stdout`.
 
 ---
 
@@ -135,45 +176,16 @@ To execute daily at 06:00 UTC:
 * **Add arguments:** `token_index.py`
 * **Start in:** `F:\path\to\tokenomics`
 
-### Option 3: GitHub Actions (Optional Daily Workflow)
-Create `.github/workflows/daily_sync.yml`:
-
-```yaml
-name: Daily Token Price Scraping
-
-on:
-  schedule:
-    - cron: '0 6 * * *' # Every day at 06:00 UTC
-  workflow_dispatch:
-
-jobs:
-  run-scraper:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run Scraper
-        run: python token_index.py
-```
-
 ---
 
 ## 🗺️ Roadmap
 
-- [ ] Add support for **Google Gemini**, **Mistral AI**, and **DeepSeek**.
-- [ ] Historical time-series logging via SQLite or DuckDB.
-- [ ] Calculate a **Weighted Token Price Index (TPI)** based on estimated enterprise usage volumes.
-- [ ] Webhook alerts (Discord/Slack/Telegram) on price change events.
-- [ ] Interactive web dashboard via GitHub Pages.
+- [x] High-precision scraping for OpenAI and Anthropic.
+- [x] Dual-format export (`token_prices.csv` & `token_prices.json`).
+- [x] Automated point-in-time daily backups in `data/history/`.
+- [x] Tier-based categorization & benchmarks (`lightweight`, `flagship`, `frontier`).
+- [ ] Add support for **Google Gemini** developer pricing.
+- [ ] Add support for **DeepSeek** API token rates.
 
 ---
 

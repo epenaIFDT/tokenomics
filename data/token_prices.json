@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-15T21:29:09",
+  "timestamp": "2026-10-15T21:42:14",
   "models": [
     {
       "provider": "openai",
@@ -183,6 +183,35 @@
     "min_input": 0.1,
     "max_input": 15.0,
     "min_output": 0.5,
-    "max_output": 75.0
+    "max_output": 75.0,
+    "by_tier": {
+      "lightweight": {
+        "models_count": 4,
+        "avg_input": 0.5,
+        "avg_output": 2.5,
+        "min_input": 0.1,
+        "max_input": 1.0,
+        "min_output": 0.5,
+        "max_output": 5.0
+      },
+      "flagship": {
+        "models_count": 9,
+        "avg_input": 2.8611,
+        "avg_output": 15.4444,
+        "min_input": 1.75,
+        "max_input": 5.0,
+        "min_output": 10.0,
+        "max_output": 30.0
+      },
+      "frontier": {
+        "models_count": 16,
+        "avg_input": 8.2188,
+        "avg_output": 41.875,
+        "min_input": 4.0,
+        "max_input": 15.0,
+        "min_output": 20.0,
+        "max_output": 75.0
+      }
+    }
   }
 }

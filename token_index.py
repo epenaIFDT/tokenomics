@@ -2,14 +2,15 @@
 """
 Token Price Index (TPI) Scraper
 Collects daily public token pricing for AI providers (OpenAI, Anthropic Claude),
-normalizes model identifiers, computes aggregate market metrics, and exports
-the dataset to JSON and CSV files.
+normalizes model identifiers, computes aggregate market metrics (global and by tier),
+exports datasets to JSON and CSV, and archives dated historical backups in data/history/.
 """
 
 import os
 import re
 import sys
 import json
+import shutil
 from datetime import datetime, timezone
 import requests
 import pandas as pd
@@ -49,6 +50,21 @@ def normalize_model_name(name: str) -> str:
     clean = re.sub(r"[\s_]+", "-", clean.lower())
     clean = re.sub(r"-+", "-", clean).strip("-")
     return clean
+
+
+def classify_tier(model_name: str) -> str:
+    """
+    Classifies a model into an industry standard performance tier:
+    - lightweight: Low-latency, cost-efficient models (Haiku, Luna, Mini)
+    - flagship: Balanced, standard production workhorse models (Sonnet, Sol, Codex)
+    - frontier: Heavy reasoning, high-capability agentic models (Opus, Astra, Fable, Mythos, Cyber)
+    """
+    name = model_name.lower()
+    if any(k in name for k in ["haiku", "luna", "mini"]):
+        return "lightweight"
+    if any(k in name for k in ["opus", "astra", "fable", "mythos", "cyber", "rosalind"]):
+        return "frontier"
+    return "flagship"
 
 
 def scrape_openai():
@@ -111,6 +127,7 @@ def scrape_openai():
                     continue
 
                 raw_name = cells[model_col]
+                # Skip header rows and empty entries
                 if not raw_name or raw_name.lower() in ["model", "name", "category", "-"]:
                     continue
 
@@ -193,8 +210,8 @@ def scrape_anthropic():
     return models
 
 
-def build_index(rows):
-    """Calculates aggregate summary statistics across all collected models."""
+def compute_metrics(rows):
+    """Computes summary statistics for a given list of models."""
     if not rows:
         return {}
     inputs = [r["input_price"] for r in rows]
@@ -210,20 +227,57 @@ def build_index(rows):
     }
 
 
+def build_index(rows):
+    """
+    Calculates overall summary metrics as well as breakdowns
+    by category (lightweight, flagship, frontier).
+    """
+    if not rows:
+        return {}
+
+    # Global summary
+    summary = compute_metrics(rows)
+
+    # Breakdown by category
+    tier_groups = {"lightweight": [], "flagship": [], "frontier": []}
+    for r in rows:
+        tier = classify_tier(r["model"])
+        tier_groups[tier].append(r)
+
+    summary["by_tier"] = {
+        tier_name: compute_metrics(models)
+        for tier_name, models in tier_groups.items()
+        if models
+    }
+
+    return summary
+
+
 def save_files(rows, summary, output_dir="data"):
     """
-    Saves structured data and summary metrics to:
-    - {output_dir}/token_prices.json
-    - {output_dir}/token_prices.csv
+    Saves:
+    1. Current snapshot in data/:
+       - {output_dir}/token_prices.json
+       - {output_dir}/token_prices.csv
+    2. Historical backup in data/history/:
+       - {output_dir}/history/token_prices_YYYY-MM-DD.json
+       - {output_dir}/history/token_prices_YYYY-MM-DD.csv
     """
     os.makedirs(output_dir, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    history_dir = os.path.join(output_dir, "history")
+    os.makedirs(history_dir, exist_ok=True)
+
+    now_utc = datetime.now(timezone.utc)
+    ts = now_utc.strftime("%Y-%m-%dT%H:%M:%S")
+    date_str = now_utc.strftime("%Y-%m-%d")
+
     data = {
         "timestamp": ts,
         "models": rows,
         "summary": summary,
     }
 
+    # 1. Save current snapshot
     json_path = os.path.join(output_dir, "token_prices.json")
     csv_path = os.path.join(output_dir, "token_prices.csv")
 
@@ -234,6 +288,13 @@ def save_files(rows, summary, output_dir="data"):
     if not df.empty:
         df = df[["provider", "model", "input_price", "output_price"]]
     df.to_csv(csv_path, index=False, encoding="utf-8")
+
+    # 2. Archive dated historical backup in history/
+    history_json_path = os.path.join(history_dir, f"token_prices_{date_str}.json")
+    history_csv_path = os.path.join(history_dir, f"token_prices_{date_str}.csv")
+
+    shutil.copyfile(json_path, history_json_path)
+    shutil.copyfile(csv_path, history_csv_path)
 
     return json_path, csv_path
 
