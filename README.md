@@ -178,17 +178,6 @@ To execute daily at 06:00 UTC:
 
 ---
 
-## 🗺️ Roadmap
-
-- [x] High-precision scraping for OpenAI and Anthropic.
-- [x] Dual-format export (`token_prices.csv` & `token_prices.json`).
-- [x] Automated point-in-time daily backups in `data/history/`.
-- [x] Tier-based categorization & benchmarks (`lightweight`, `flagship`, `frontier`).
-- [ ] Add support for **Google Gemini** developer pricing.
-- [ ] Add support for **DeepSeek** API token rates.
-
----
-
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
