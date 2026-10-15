@@ -12,6 +12,7 @@ ENV/
 # Local logs and personal scripts
 *.log
 sync_github.py
+instructivo.md
 .env
 
 # IDE and Editor settings
