@@ -15,6 +15,8 @@ sync_github.py
 instructivo.md
 ejecutar.bat
 *.bat
+run_silent.vbs
+*.vbs
 .env
 
 # IDE and Editor settings
