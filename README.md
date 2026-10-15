@@ -54,6 +54,7 @@ openai,gpt-6.1-sol,2.0,10.0
 openai,gpt-6-luna,0.1,0.5
 openai,gpt-5.6-sol,4.0,20.0
 openai,gpt-5.6-cyber,12.5,75.0
+...
 anthropic,claude-fable-5.1,10.0,50.0
 anthropic,claude-opus-5.5,4.0,20.0
 anthropic,claude-sonnet-5.5,2.0,10.0
