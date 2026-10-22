@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Token Price Index (TPI) Scraper
+Token Price Index (TPI) Scraper & CLI
 Collects daily public token pricing for AI providers (OpenAI, Anthropic Claude),
 normalizes model identifiers, computes aggregate market metrics (global and by tier),
 exports datasets to JSON and CSV, and archives dated historical backups in data/history/.
@@ -11,6 +11,7 @@ import re
 import sys
 import json
 import shutil
+import argparse
 from datetime import datetime, timezone
 import requests
 import pandas as pd
@@ -44,9 +45,7 @@ def parse_dollar(val: str):
 
 def normalize_model_name(name: str) -> str:
     """Normalizes model names into clean, lowercase slug identifiers."""
-    # Strip web font icon glyphs (Unicode Private Use Area)
     clean = re.sub(r"[\ue000-\uf8ff]", "", name).strip()
-    # Replace spaces and underscores with single hyphens
     clean = re.sub(r"[\s_]+", "-", clean.lower())
     clean = re.sub(r"-+", "-", clean).strip("-")
     return clean
@@ -93,7 +92,6 @@ def scrape_openai():
             if not rows:
                 continue
 
-            # Dynamically identify column indices from table header
             model_col = None
             input_col = None
             output_col = None
@@ -127,21 +125,17 @@ def scrape_openai():
                     continue
 
                 raw_name = cells[model_col]
-                # Skip header rows and empty entries
                 if not raw_name or raw_name.lower() in ["model", "name", "category", "-"]:
                     continue
 
-                # Exclude non-text modalities
                 if any(m in raw_name.lower() for m in ["audio", "image", "call", "web search"]):
                     continue
 
                 inp = parse_dollar(cells[input_col])
                 out = parse_dollar(cells[output_col])
 
-                # Validate valid positive pricing
                 if inp is not None and out is not None and inp > 0 and out > 0:
                     model_slug = normalize_model_name(raw_name)
-                    # The first table under each category represents the Standard tier
                     if model_slug not in seen:
                         seen.add(model_slug)
                         models.append({
@@ -149,6 +143,7 @@ def scrape_openai():
                             "model": model_slug,
                             "input_price": inp,
                             "output_price": out,
+                            "tier": classify_tier(model_slug),
                         })
 
     except Exception as e:
@@ -171,7 +166,6 @@ def scrape_anthropic():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # Locate the official base token pricing table
         for table in soup.find_all("table"):
             table_text = table.get_text()
             if "Base tokens" not in table_text and "Prompt caching" not in table_text:
@@ -202,6 +196,7 @@ def scrape_anthropic():
                             "model": model_slug,
                             "input_price": inp,
                             "output_price": out,
+                            "tier": classify_tier(model_slug),
                         })
 
     except Exception as e:
@@ -235,13 +230,11 @@ def build_index(rows):
     if not rows:
         return {}
 
-    # Global summary
     summary = compute_metrics(rows)
 
-    # Breakdown by category
     tier_groups = {"lightweight": [], "flagship": [], "frontier": []}
     for r in rows:
-        tier = classify_tier(r["model"])
+        tier = r.get("tier", classify_tier(r["model"]))
         tier_groups[tier].append(r)
 
     summary["by_tier"] = {
@@ -277,7 +270,6 @@ def save_files(rows, summary, output_dir="data"):
         "summary": summary,
     }
 
-    # 1. Save current snapshot
     json_path = os.path.join(output_dir, "token_prices.json")
     csv_path = os.path.join(output_dir, "token_prices.csv")
 
@@ -289,7 +281,6 @@ def save_files(rows, summary, output_dir="data"):
         df = df[["provider", "model", "input_price", "output_price"]]
     df.to_csv(csv_path, index=False, encoding="utf-8")
 
-    # 2. Archive dated historical backup in history/
     history_json_path = os.path.join(history_dir, f"token_prices_{date_str}.json")
     history_csv_path = os.path.join(history_dir, f"token_prices_{date_str}.csv")
 
@@ -299,13 +290,104 @@ def save_files(rows, summary, output_dir="data"):
     return json_path, csv_path
 
 
+def load_cached_data(data_dir="data"):
+    """Loads existing data from local token_prices.json if available."""
+    json_path = os.path.join(data_dir, "token_prices.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def fetch_or_load(scrape_fresh=False, data_dir="data"):
+    """Fetches live data if requested or cache missing, otherwise loads cache."""
+    cached = load_cached_data(data_dir)
+    if scrape_fresh or not cached or not cached.get("models"):
+        rows = []
+        rows.extend(scrape_openai())
+        rows.extend(scrape_anthropic())
+        summary = build_index(rows)
+        save_files(rows, summary, output_dir=data_dir)
+        return {"models": rows, "summary": summary}
+    return cached
+
+
 def main():
-    rows = []
-    rows.extend(scrape_openai())
-    rows.extend(scrape_anthropic())
-    summary = build_index(rows)
-    save_files(rows, summary, output_dir="data")
-    print(json.dumps(summary, indent=2))
+    parser = argparse.ArgumentParser(
+        description="Token Price Index (TPI) - AI Token Pricing Scraper & CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--scrape", "-s", action="store_true", help="Force fresh scrape from official developer pages"
+    )
+    parser.add_argument(
+        "--query", "-q", type=str, help="Search pricing for a specific model (e.g. 'sonnet', 'gpt-6.1')"
+    )
+    parser.add_argument(
+        "--tier", "-t", type=str, choices=["lightweight", "flagship", "frontier"], help="Filter models by tier"
+    )
+    parser.add_argument(
+        "--summary", action="store_true", help="Output summary benchmark metrics only"
+    )
+    parser.add_argument(
+        "--output-dir", "-o", default="data", help="Data directory (default: 'data')"
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Format output strictly as JSON"
+    )
+
+    args = parser.parse_args()
+
+    # If no specific query/tier/summary action specified, default to full scrape & export
+    is_default_run = not (args.query or args.tier or args.summary)
+
+    if is_default_run:
+        data = fetch_or_load(scrape_fresh=True, data_dir=args.output_dir)
+        print(json.dumps(data["summary"], indent=2))
+        return
+
+    # Filtered / Query execution
+    data = fetch_or_load(scrape_fresh=args.scrape, data_dir=args.output_dir)
+    models = data.get("models", [])
+    summary = data.get("summary", {})
+
+    results = []
+
+    if args.query:
+        q = args.query.lower()
+        results = [m for m in models if q in m["model"].lower() or q in m["provider"].lower()]
+    elif args.tier:
+        results = [m for m in models if m.get("tier", classify_tier(m["model"])) == args.tier]
+
+    if args.summary and not (args.query or args.tier):
+        print(json.dumps(summary, indent=2))
+        return
+
+    if args.json or is_default_run:
+        out = {
+            "query": args.query,
+            "tier": args.tier,
+            "count": len(results),
+            "models": results,
+        }
+        if args.summary:
+            out["summary"] = summary
+        print(json.dumps(out, indent=2))
+    else:
+        # Human-readable table
+        if not results:
+            print("No models found matching criteria.")
+            return
+
+        print(f"\nFound {len(results)} model(s):")
+        print(f"{'Provider':<12} {'Model':<25} {'Tier':<13} {'Input ($/MTok)':<15} {'Output ($/MTok)':<15}")
+        print("-" * 80)
+        for m in results:
+            tier = m.get("tier", classify_tier(m["model"]))
+            print(f"{m['provider']:<12} {m['model']:<25} {tier:<13} ${m['input_price']:<14.2f} ${m['output_price']:<14.2f}")
 
 
 if __name__ == "__main__":
